@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Personal Finance Monitor</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg-color: #f4f7f6; --card-bg: #ffffff; --text-color: #333;
+            --primary: #4a90e2; --green: #7ed321; --red: #d0021b; --yellow: #f5a623;
+            --blue: #4a90e2; --border-color: #e0e0e0;
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: var(--bg-color); color: var(--text-color); margin: 0; padding: 1rem; }
+        .container { max-width: 800px; margin: auto; }
+        .card { background-color: var(--card-bg); border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h1, h2 { color: var(--primary); text-align: center; }
+        h2 { border-bottom: 2px solid var(--border-color); padding-bottom: 0.5rem; margin-top: 2rem; }
+        .accounts-grid, .actions-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; }
+        .account { padding: 1rem; border: 1px solid var(--border-color); border-radius: 6px; text-align: center; }
+        .account.virtual { border-style: dashed; }
+        .account-name { font-weight: bold; margin-bottom: 0.5rem; }
+        .account-balance { font-size: 1.2rem; color: var(--green); }
+        .account-balance.negative { color: var(--red); }
+        form { display: flex; flex-direction: column; gap: 1rem; }
+        input, select, button { padding: 0.8rem; border-radius: 6px; border: 1px solid var(--border-color); font-size: 1rem; }
+        button { background-color: var(--primary); color: white; border: none; cursor: pointer; font-weight: bold; }
+        button:hover { opacity: 0.9; }
+        .action-card { display: flex; flex-direction: column; }
+        .action-card select { margin-top: 0.5rem; }
+        #trans-type { display: flex; gap: 1rem; }
+        #trans-type label { flex: 1; text-align: center; padding: 0.8rem; border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; }
+        #trans-type input[type="radio"] { display: none; }
+        #trans-type input:checked + label { background-color: var(--primary); color: white; border-color: var(--primary); }
+        table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+        th, td { padding: 0.8rem; text-align: left; border-bottom: 1px solid var(--border-color); }
+        .notification { position: fixed; top: 20px; right: 20px; background-color: var(--green); color: white; padding: 1rem 2rem; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.2); z-index: 1000; opacity: 0; transition: opacity 0.5s; }
+        .notification.show { opacity: 1; }
+        .calendar { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; text-align: center; }
+        .calendar-header { font-weight: bold; }
+        .calendar-day { padding: 0.5em; border-radius: 4px; }
+        .day-in-month { background-color: #fff; cursor: pointer; }
+        .day-not-in-month { color: #ccc; }
+        .calendar-day.green { background-color: #28a745; color: white; }
+        .calendar-day.blue { background-color: #007bff; color: white; }
+        .calendar-day.yellow { background-color: #ffc107; color: black; }
+        .calendar-day.red { background-color: #dc3545; color: white; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Dashboard Keuangan</h1>
+
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                <div id="notification" class="notification show">{{ messages[0] }}</div>
+            {% endif %}
+        {% endwith %}
+
+        <div class="card">
+            <h2>Saldo Akun</h2>
+            <div class="accounts-grid">
+                {% for acc in accounts %}
+                    <div class="account {% if acc.is_virtual %}virtual{% endif %}">
+                        <div class="account-name">{{ acc.name }}</div>
+                        <div class="account-balance {% if acc.balance < 0 %}negative{% endif %}">Rp {{ "{:,.0f}".format(acc.balance) }}</div>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Aksi Cepat</h2>
+            <div class="actions-grid">
+                <form action="/quick_action" method="POST" class="action-card">
+                    <input type="hidden" name="action" value="kip">
+                    <button type="submit">💰 Cairkan KIP (Rp 5.7jt)</button>
+                </form>
+                <form action="/quick_action" method="POST" class="action-card">
+                    <input type="hidden" name="action" value="sedekah">
+                    <select name="source_account" required>
+                        {% for acc in accounts %}{% if not acc.is_virtual %}<option value="{{ acc.id }}">{{ acc.name }}</option>{% endif %}{% endfor %}
+                    </select>
+                    <button type="submit">🙏 Sedekah (Rp 1rb)</button>
+                </form>
+                <form action="/quick_action" method="POST" class="action-card">
+                    <input type="hidden" name="action" value="menabung">
+                    <select name="source_account" required>
+                        {% for acc in accounts %}{% if not acc.is_virtual %}<option value="{{ acc.id }}">{{ acc.name }}</option>{% endif %}{% endfor %}
+                    </select>
+                    <button type="submit">🏦 Menabung (Rp 5rb)</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Transaksi Custom</h2>
+            <form action="/add_transaction" method="POST">
+                <div id="trans-type">
+                    <input type="radio" id="pemasukan" name="type" value="Pemasukan" checked>
+                    <label for="pemasukan">Pemasukan</label>
+                    <input type="radio" id="pengeluaran" name="type" value="Pengeluaran">
+                    <label for="pengeluaran">Pengeluaran</label>
+                </div>
+                <select name="account" required>
+                    <option value="" disabled selected>Pilih Akun Sumber...</option>
+                    {% for acc in accounts %}{% if not acc.is_virtual %}<option value="{{ acc.id }}">{{ acc.name }}</option>{% endif %}{% endfor %}
+                </select>
+                <input type="number" name="amount" placeholder="Jumlah" required>
+                <input type="text" name="category" placeholder="Kategori (cth: Makanan, Gaji, Sedekah, Menabung)" required>
+                <input type="text" name="description" placeholder="Deskripsi (opsional)">
+                <button type="submit">Simpan Transaksi</button>
+            </form>
+        </div>
+        
+        <div class="card">
+             <h2>Visualisasi Data</h2>
+             <canvas id="dailyChart"></canvas>
+             <h3 style="text-align:center; margin-top:2rem;">Kalender Aktivitas: {{ today.strftime('%B %Y') }}</h3>
+             <div class="calendar">
+                <div class="calendar-header">Min</div><div class="calendar-header">Sen</div><div class="calendar-header">Sel</div>
+                <div class="calendar-header">Rab</div><div class="calendar-header">Kam</div><div class="calendar-header">Jum</div>
+                <div class="calendar-header">Sab</div>
+                {% for item in calendar_data %}
+                    <div class="calendar-day {% if item.day.month == today.month %}day-in-month {{ item.color }}{% else %}day-not-in-month{% endif %}">
+                       {{ item.day.day }}
+                    </div>
+                {% endfor %}
+             </div>
+        </div>
+
+        <div class="card">
+            <h2>Riwayat Transaksi Terakhir</h2>
+            <table>
+                <thead>
+                    <tr><th>Tanggal</th><th>Tipe</th><th>Akun</th><th>Jumlah</th><th>Kategori</th></tr>
+                </thead>
+                <tbody>
+                    {% for trx in transactions %}
+                    <tr>
+                        <td>{{ trx.timestamp[:10] }}</td><td>{{ trx.type }}</td><td>{{ trx.account_name }}</td>
+                        <td>Rp {{ "{:,.0f}".format(trx.amount) }}</td><td>{{ trx.category }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // Auto-hide notification
+        const notification = document.getElementById('notification');
+        if (notification) {
+            setTimeout(() => {
+                notification.classList.remove('show');
+            }, 3000); // Hide after 3 seconds
+        }
+
+        // Chart.js
+        const ctx = document.getElementById('dailyChart').getContext('2d');
+        const dailyChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: {{ chart_data.labels | tojson }},
+                datasets: [{
+                    label: 'Pemasukan',
+                    data: {{ chart_data.pemasukan | tojson }},
+                    borderColor: 'rgba(75, 192, 192, 1)',
+                    backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                    fill: true,
+                    tension: 0.1
+                }, {
+                    label: 'Pengeluaran',
+                    data: {{ chart_data.pengeluaran | tojson }},
+                    borderColor: 'rgba(255, 99, 132, 1)',
+                    backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                    fill: true,
+                    tension: 0.1
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: {
+                        beginAtZero: true // Skala sumbu Y dimulai dari 0
+                    }
+                }
+            }
+        });
+    </script>
+</body>
+              </html>
